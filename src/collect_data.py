@@ -158,7 +158,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Collect normalized hand landmark samples for gesture recognition."
     )
-    parser.add_argument("--label", required=True, type=str, help="Gesture label to collect. Use A-Z or 1-9.")
+    parser.add_argument("--label", default="A", type=str, help="Gesture label to collect. Use A-Z or 1-9.")
     parser.add_argument("--camera", default=0, type=int, help="OpenCV camera index. Defaults to 0.")
     parser.add_argument("--output", default=str(DATA_PATH), type=str, help="CSV output path.")
     parser.add_argument(
@@ -233,25 +233,31 @@ def draw_status(
 ) -> None:
     """Draw capture status text onto the webcam frame."""
     status_lines = [
-        f"Collecting: {label_text} -> {label_id}",
-        f"Saved this run: {saved_count}",
+        f"Active Label: {label_text} (ID: {label_id})",
+        f"Saved samples: {saved_count}",
         f"Hands detected: {detected_hands}/{MAX_HANDS}",
-        "Press C to capture | Q/Esc to quit",
+        "------------------------------",
+        "Press [A-Z] / [1-9] to switch label",
+        "Press Space to capture | Esc to quit",
     ]
+
+    # Draw dark translucent background HUD
+    cv2.rectangle(frame, (5, 5), (370, 185), (20, 20, 20), -1)
+    cv2.rectangle(frame, (5, 5), (370, 185), (30, 220, 30), 1)
 
     y_position = 30
     for line in status_lines:
         cv2.putText(
             frame,
             line,
-            (10, y_position),
+            (15, y_position),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
+            0.55,
             (30, 220, 30),
-            2,
+            1,
             cv2.LINE_AA,
         )
-        y_position += 30
+        y_position += 25
 
 
 def main() -> None:
@@ -281,6 +287,11 @@ def main() -> None:
     latest_detected_hands = 0
     frame_timestamp_ms = 0
 
+    print(f"Starting data collection. Active label: {label_text}")
+    print("Press Space to capture a sample.")
+    print("Press any letter (A-Z) or digit (1-9) to switch active label live.")
+    print("Press Esc to exit.")
+
     try:
         with create_hand_landmarker(model_path) as landmarker:
             while True:
@@ -306,9 +317,9 @@ def main() -> None:
                     cv2.putText(
                         frame,
                         "No hand detected",
-                        (10, 150),
+                        (15, 220),
                         cv2.FONT_HERSHEY_SIMPLEX,
-                        0.8,
+                        0.7,
                         (0, 0, 255),
                         2,
                         cv2.LINE_AA,
@@ -324,10 +335,10 @@ def main() -> None:
                 cv2.imshow("GestureSense-AI Data Collection", frame)
 
                 key = cv2.waitKey(1) & 0xFF
-                if key in (ord("q"), 27):
+                if key == 27:  # Esc
                     break
 
-                if key == ord("c"):
+                if key == ord(" "):  # Space to capture
                     if latest_detected_hands == 0:
                         print("No hand detected. Sample was not saved.")
                         continue
@@ -335,6 +346,16 @@ def main() -> None:
                     append_sample(output_path, latest_features, label_id)
                     saved_count += 1
                     print(f"Saved sample {saved_count} for label {label_text}.")
+                else:
+                    # Check if pressed key corresponds to a letter or number to switch active label
+                    try:
+                        char_key = chr(key).upper()
+                        if char_key in LABEL_TO_ID:
+                            label_text = char_key
+                            label_id = LABEL_TO_ID[label_text]
+                            print(f"Switched active label to: {label_text} (ID: {label_id})")
+                    except ValueError:
+                        pass
     finally:
         camera.release()
         cv2.destroyAllWindows()
