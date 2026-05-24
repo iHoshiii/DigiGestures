@@ -41,10 +41,11 @@ HAND_CONNECTIONS = (
 
 LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 DIGITS = "123456789"
+CUSTOM_WORDS = ["LOVE", "HELLO", "Fuck You", "OK", "YES", "NO"]
 
 LABEL_TO_ID = {
     label: index
-    for index, label in enumerate(LETTERS + DIGITS)
+    for index, label in enumerate(list(LETTERS + DIGITS) + CUSTOM_WORDS)
 }
 
 ID_TO_LABEL = {
@@ -66,7 +67,7 @@ def build_feature_header() -> list[str]:
     return columns
 
 
-def normalize_hand_landmarks(hand_landmarks: object) -> list[float]:
+def normalize_hand_landmarks(hand_landmarks: list) -> list[float]:
     """Convert one MediaPipe hand into wrist-relative x/y/z coordinates."""
     landmarks = hand_landmarks
     wrist = landmarks[0]
@@ -158,7 +159,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Collect normalized hand landmark samples for gesture recognition."
     )
-    parser.add_argument("--label", default="A", type=str, help="Gesture label to collect. Use A-Z or 1-9.")
+    parser.add_argument(
+        "--label", default="A", type=str,
+        help="Gesture label to collect. Use A-Z, 1-9, or custom words: "
+             + ", ".join(CUSTOM_WORDS),
+    )
     parser.add_argument("--camera", default=0, type=int, help="OpenCV camera index. Defaults to 0.")
     parser.add_argument("--output", default=str(DATA_PATH), type=str, help="CSV output path.")
     parser.add_argument(
@@ -238,12 +243,13 @@ def draw_status(
         f"Hands detected: {detected_hands}/{MAX_HANDS}",
         "------------------------------",
         "Press [A-Z] / [1-9] to switch label",
+        "Or use --label LOVE, HELLO, etc.",
         "Press Space to capture | Esc to quit",
     ]
 
     # Draw dark translucent background HUD
-    cv2.rectangle(frame, (5, 5), (370, 185), (20, 20, 20), -1)
-    cv2.rectangle(frame, (5, 5), (370, 185), (30, 220, 30), 1)
+    cv2.rectangle(frame, (5, 5), (370, 210), (20, 20, 20), -1)
+    cv2.rectangle(frame, (5, 5), (370, 210), (30, 220, 30), 1)
 
     y_position = 30
     for line in status_lines:
@@ -266,7 +272,7 @@ def main() -> None:
     label_text = args.label.strip().upper()
 
     if label_text not in LABEL_TO_ID:
-        valid_labels = ", ".join(LETTERS + DIGITS)
+        valid_labels = ", ".join(list(LETTERS + DIGITS) + CUSTOM_WORDS)
         raise ValueError(f"Invalid label '{args.label}'. Use one of: {valid_labels}")
 
     label_id = LABEL_TO_ID[label_text]
@@ -290,6 +296,7 @@ def main() -> None:
     print(f"Starting data collection. Active label: {label_text}")
     print("Press Space to capture a sample.")
     print("Press any letter (A-Z) or digit (1-9) to switch active label live.")
+    print(f"Custom word labels available via --label flag: {', '.join(CUSTOM_WORDS)}")
     print("Press Esc to exit.")
 
     try:
@@ -317,7 +324,7 @@ def main() -> None:
                     cv2.putText(
                         frame,
                         "No hand detected",
-                        (15, 220),
+                        (15, 240),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.7,
                         (0, 0, 255),
@@ -332,7 +339,7 @@ def main() -> None:
                     saved_count,
                     latest_detected_hands,
                 )
-                cv2.imshow("GestureSense-AI Data Collection", frame)
+                cv2.imshow("DigiGestures Data Collection", frame)
 
                 key = cv2.waitKey(1) & 0xFF
                 if key == 27:  # Esc

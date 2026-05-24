@@ -22,7 +22,8 @@ MODEL_PATH = PROJECT_ROOT / "models" / "gesture_model.pkl"
 
 LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 DIGITS = "123456789"
-LABEL_TO_ID = {label: index for index, label in enumerate(LETTERS + DIGITS)}
+CUSTOM_WORDS = ["LOVE", "HELLO", "PEACE", "OK", "YES", "NO"]
+LABEL_TO_ID = {label: index for index, label in enumerate(list(LETTERS + DIGITS) + CUSTOM_WORDS)}
 ID_TO_LABEL = {index: label for label, index in LABEL_TO_ID.items()}
 
 # Total features expected: 2 hands * 21 landmarks * 3 coords = 126
