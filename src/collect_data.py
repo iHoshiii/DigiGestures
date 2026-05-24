@@ -68,7 +68,7 @@ def build_feature_header() -> list[str]:
 
 def normalize_hand_landmarks(hand_landmarks: object) -> list[float]:
     """Convert one MediaPipe hand into wrist-relative x/y/z coordinates."""
-    landmarks = hand_landmarks.landmark
+    landmarks = hand_landmarks
     wrist = landmarks[0]
 
     normalized: list[float] = []
