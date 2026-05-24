@@ -269,7 +269,11 @@ def draw_status(
 def main() -> None:
     """Run the webcam data collection loop."""
     args = parse_args()
-    label_text = args.label.strip().upper()
+    label_text = args.label.strip()
+
+    # Try exact match first (for custom words), then uppercase (for A-Z, 1-9)
+    if label_text not in LABEL_TO_ID:
+        label_text = label_text.upper()
 
     if label_text not in LABEL_TO_ID:
         valid_labels = ", ".join(list(LETTERS + DIGITS) + CUSTOM_WORDS)

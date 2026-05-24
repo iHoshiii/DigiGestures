@@ -22,7 +22,7 @@ MODEL_PATH = PROJECT_ROOT / "models" / "gesture_model.pkl"
 
 LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 DIGITS = "123456789"
-CUSTOM_WORDS = ["LOVE", "HELLO", "PEACE", "OK", "YES", "NO"]
+CUSTOM_WORDS = ["LOVE", "HELLO", "Fuck You", "OK", "YES", "NO"]
 LABEL_TO_ID = {label: index for index, label in enumerate(list(LETTERS + DIGITS) + CUSTOM_WORDS)}
 ID_TO_LABEL = {index: label for label, index in LABEL_TO_ID.items()}
 
