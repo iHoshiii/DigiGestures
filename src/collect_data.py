@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import argparse
 import csv
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Iterable
 
@@ -15,6 +17,11 @@ import mediapipe as mp
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_PATH = PROJECT_ROOT / "data" / "hand_data.csv"
+DEFAULT_MODEL_PATH = PROJECT_ROOT / "models" / "hand_landmarker.task"
+HAND_LANDMARKER_URL = (
+    "https://storage.googleapis.com/mediapipe-models/hand_landmarker/"
+    "hand_landmarker/float16/1/hand_landmarker.task"
+)
 
 MAX_HANDS = 2
 LANDMARKS_PER_HAND = 21
@@ -22,6 +29,15 @@ COORDS_PER_LANDMARK = 3
 
 FEATURES_PER_HAND = LANDMARKS_PER_HAND * COORDS_PER_LANDMARK
 TOTAL_FEATURES = MAX_HANDS * FEATURES_PER_HAND
+
+HAND_CONNECTIONS = (
+    (0, 1), (1, 2), (2, 3), (3, 4),
+    (0, 5), (5, 6), (6, 7), (7, 8),
+    (5, 9), (9, 10), (10, 11), (11, 12),
+    (9, 13), (13, 14), (14, 15), (15, 16),
+    (13, 17), (17, 18), (18, 19), (19, 20),
+    (0, 17),
+)
 
 LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 DIGITS = "123456789"
@@ -82,14 +98,25 @@ def extract_features(results: object) -> tuple[list[float], int]:
         "Right": empty_hand.copy(),
     }
 
-    hand_landmarks = results.multi_hand_landmarks or []
-    handedness_values = results.multi_handedness or []
+    hand_landmarks = (
+        getattr(results, "multi_hand_landmarks", None)
+        or getattr(results, "hand_landmarks", None)
+        or []
+    )
+    handedness_values = (
+        getattr(results, "multi_handedness", None)
+        or getattr(results, "handedness", None)
+        or []
+    )
 
     for landmarks, handedness in zip(
         hand_landmarks[:MAX_HANDS],
         handedness_values[:MAX_HANDS],
     ):
-        handedness_label = handedness.classification[0].label
+        if hasattr(handedness, "classification"):
+            handedness_label = handedness.classification[0].label
+        else:
+            handedness_label = handedness[0].category_name
 
         if handedness_label not in hand_slots:
             continue
@@ -134,7 +161,67 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--label", required=True, type=str, help="Gesture label to collect. Use A-Z or 1-9.")
     parser.add_argument("--camera", default=0, type=int, help="OpenCV camera index. Defaults to 0.")
     parser.add_argument("--output", default=str(DATA_PATH), type=str, help="CSV output path.")
+    parser.add_argument(
+        "--model",
+        default=str(DEFAULT_MODEL_PATH),
+        type=str,
+        help="MediaPipe Hand Landmarker .task model path.",
+    )
     return parser.parse_args()
+
+
+def ensure_hand_landmarker_model(model_path: Path) -> None:
+    """Download the MediaPipe Tasks hand model when it is not present locally."""
+    if model_path.exists() and model_path.stat().st_size > 0:
+        return
+
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    print(f"Downloading MediaPipe hand model to {model_path}...")
+
+    try:
+        urllib.request.urlretrieve(HAND_LANDMARKER_URL, model_path)
+    except (OSError, urllib.error.URLError) as error:
+        raise RuntimeError(
+            "Could not download the MediaPipe hand model. "
+            f"Download it manually from {HAND_LANDMARKER_URL} and save it as {model_path}."
+        ) from error
+
+
+def create_hand_landmarker(model_path: Path) -> object:
+    """Create a MediaPipe Tasks hand landmarker for video frames."""
+    base_options = mp.tasks.BaseOptions(model_asset_path=str(model_path))
+    options = mp.tasks.vision.HandLandmarkerOptions(
+        base_options=base_options,
+        running_mode=mp.tasks.vision.RunningMode.VIDEO,
+        num_hands=MAX_HANDS,
+        min_hand_detection_confidence=0.6,
+        min_hand_presence_confidence=0.6,
+        min_tracking_confidence=0.6,
+    )
+
+    return mp.tasks.vision.HandLandmarker.create_from_options(options)
+
+
+def draw_hand_landmarks(frame: object, hand_landmarks: Iterable[object]) -> None:
+    """Draw MediaPipe Tasks hand landmarks with OpenCV."""
+    frame_height, frame_width = frame.shape[:2]
+    points = [
+        (int(landmark.x * frame_width), int(landmark.y * frame_height))
+        for landmark in hand_landmarks
+    ]
+
+    for start_index, end_index in HAND_CONNECTIONS:
+        cv2.line(
+            frame,
+            points[start_index],
+            points[end_index],
+            (30, 180, 255),
+            2,
+            cv2.LINE_AA,
+        )
+
+    for point in points:
+        cv2.circle(frame, point, 4, (30, 220, 30), -1, cv2.LINE_AA)
 
 
 def draw_status(
@@ -178,11 +265,9 @@ def main() -> None:
 
     label_id = LABEL_TO_ID[label_text]
     output_path = Path(args.output)
+    model_path = Path(args.model)
     ensure_csv_exists(output_path)
-
-    mp_hands = mp.solutions.hands
-    mp_drawing = mp.solutions.drawing_utils
-    mp_styles = mp.solutions.drawing_styles
+    ensure_hand_landmarker_model(model_path)
 
     camera = cv2.VideoCapture(args.camera)
     if not camera.isOpened():
@@ -194,15 +279,10 @@ def main() -> None:
     saved_count = 0
     latest_features = [0.0] * TOTAL_FEATURES
     latest_detected_hands = 0
+    frame_timestamp_ms = 0
 
     try:
-        with mp_hands.Hands(
-            static_image_mode=False,
-            max_num_hands=MAX_HANDS,
-            model_complexity=1,
-            min_detection_confidence=0.6,
-            min_tracking_confidence=0.6,
-        ) as hands:
+        with create_hand_landmarker(model_path) as landmarker:
             while True:
                 success, frame = camera.read()
                 if not success:
@@ -211,21 +291,15 @@ def main() -> None:
 
                 frame = cv2.flip(frame, 1)
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                rgb_frame.flags.writeable = False
-                results = hands.process(rgb_frame)
-                rgb_frame.flags.writeable = True
+                mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+                frame_timestamp_ms += 1
+                results = landmarker.detect_for_video(mp_image, frame_timestamp_ms)
 
-                if results.multi_hand_landmarks:
+                if results.hand_landmarks:
                     latest_features, latest_detected_hands = extract_features(results)
 
-                    for hand_landmarks in results.multi_hand_landmarks:
-                        mp_drawing.draw_landmarks(
-                            frame,
-                            hand_landmarks,
-                            mp_hands.HAND_CONNECTIONS,
-                            mp_styles.get_default_hand_landmarks_style(),
-                            mp_styles.get_default_hand_connections_style(),
-                        )
+                    for hand_landmarks in results.hand_landmarks:
+                        draw_hand_landmarks(frame, hand_landmarks)
                 else:
                     latest_features = [0.0] * TOTAL_FEATURES
                     latest_detected_hands = 0
